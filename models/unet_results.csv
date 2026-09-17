@@ -1,0 +1,9 @@
+metric,value
+Best Val Dice,0.2733
+Best Val Loss,0.6949
+Dice - Necrosis,0.0243
+Dice - Edema,0.2183
+Dice - Enhancing,0.4007
+Overall Dice,0.2230
+Epochs Trained,100
+Parameters,"5,649,204"

@@ -1,0 +1,19 @@
+# Large data files
+data/raw/
+data/processed/
+data/training/
+
+# Model weights (too large for GitHub)
+models/*.pt
+
+# R session files
+.Rhistory
+.RData
+.Rproj.user/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# IDE
+.vscode/

@@ -1,0 +1,4 @@
+Approach,Accuracy,Macro F1,Weighted F1,Kappa,PD Sensitivity,PD Specificity,PD F1
+Total Volume Only,27.3%,0.170,0.389,0.051,0.309,0.909,0.459
+Region-Wise Volume,72.7%,0.236,0.634,0.119,1.000,0.136,0.853
+Full Longitudinal Framework,71.4%,0.210,0.600,0.031,1.000,0.045,0.840
