@@ -24,7 +24,12 @@ compute_classification_metrics <- function(predicted, actual,
   predicted <- factor(predicted, levels = classes)
   actual <- factor(actual, levels = classes)
 
-  cm <- confusionMatrix(predicted, actual)
+  cm <- tryCatch(
+    confusionMatrix(predicted, actual),
+    error = function(e) {
+      list(table = table(Predicted = predicted, Actual = actual))
+    }
+  )
 
   per_class <- list()
   for (cls in classes) {

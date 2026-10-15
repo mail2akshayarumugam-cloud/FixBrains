@@ -1,0 +1,214 @@
+---
+title: "02 — 3D U-Net Training for Tumor Segmentation"
+author: "Aasif Khan A, Tarun Mukil S, Akshay Arumugam"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+knitr::opts_knit$set(root.dir = normalizePath(".."))
+```
+
+# 3D U-Net: Tumor Segmentation
+
+This notebook trains a 3D U-Net using R `torch` on the LUMIERE dataset.
+
+```{r libraries}
+library(torch)
+library(luz)
+library(tidyverse)
+library(patchwork)
+
+source("R/utils.R")
+source("R/01_data_loader.R")
+source("R/02_preprocessing.R")
+source("R/03_model_3d_unet.R")
+```
+
+## Step 1: Prepare Training Data
+
+```{r prepare_data}
+DATA_PATH <- "data/raw/LUMIERE"
+PROCESSED_PATH <- "data/processed/registered"
+MODEL_PATH <- "models/unet_3d.pt"
+
+ensure_dir("models")
+ensure_dir(PROCESSED_PATH)
+
+patients <- load_patient_index(DATA_PATH)
+cat("Found", nrow(patients), "patients\n")
+```
+
+## Step 2: Preprocess and Save Training Volumes
+
+```{r preprocess, eval=FALSE}
+# Run this block once to preprocess and cache all training data
+# Set eval=TRUE when you have the dataset ready
+
+TARGET_SIZE <- c(128L, 128L, 128L)
+
+for (i in seq_len(min(nrow(patients), 20))) {
+  pid <- patients$patient_id[i]
+  patient_path <- patients$path[i]
+
+  cat("Processing", pid, "(", i, "/", min(nrow(patients), 20), ")\n")
+
+  patient_data <- tryCatch(
+    load_full_patient(patient_path),
+    error = function(e) { cat("  Skip:", e$message, "\n"); NULL }
+  )
+  if (is.null(patient_data)) next
+
+  preprocess_full_patient(patient_data,
+                           target_size = TARGET_SIZE,
+                           output_dir = PROCESSED_PATH)
+}
+
+cat("Preprocessing complete.\n")
+```
+
+## Step 3: Collect Training Pairs
+
+```{r collect_pairs}
+mri_files <- list.files(PROCESSED_PATH, pattern = "stacked_mri\\.rds",
+                         recursive = TRUE, full.names = TRUE)
+seg_files <- list.files(PROCESSED_PATH, pattern = "segmentation\\.rds",
+                         recursive = TRUE, full.names = TRUE)
+
+# Match MRI to segmentation by directory
+paired <- tibble(mri = mri_files) %>%
+  mutate(dir = dirname(mri)) %>%
+  inner_join(
+    tibble(seg = seg_files) %>% mutate(dir = dirname(seg)),
+    by = "dir"
+  )
+
+cat("Training pairs found:", nrow(paired), "\n")
+
+# Train/validation split (80/20)
+set.seed(42)
+n <- nrow(paired)
+train_idx <- sample(n, floor(n * 0.8))
+val_idx <- setdiff(seq_len(n), train_idx)
+
+train_mri <- paired$mri[train_idx]
+train_seg <- paired$seg[train_idx]
+val_mri <- paired$mri[val_idx]
+val_seg <- paired$seg[val_idx]
+
+cat("Train:", length(train_mri), "| Val:", length(val_mri), "\n")
+```
+
+## Step 4: Train 3D U-Net
+
+```{r train, eval=FALSE}
+# Set eval=TRUE when ready to train
+
+cat("CUDA available:", cuda_is_available(), "\n")
+
+result <- train_unet(
+  train_mri_paths = train_mri,
+  train_seg_paths = train_seg,
+  val_mri_paths = val_mri,
+  val_seg_paths = val_seg,
+  epochs = 50L,
+  batch_size = 2L,
+  lr = 1e-4,
+  in_channels = 4L,
+  n_classes = 4L,
+  base_filters = 16L,
+  save_path = MODEL_PATH
+)
+
+cat("Model saved to:", MODEL_PATH, "\n")
+```
+
+## Step 5: Training History
+
+```{r plot_history, fig.width=10, fig.height=4}
+# After training, plot learning curves
+# result$history contains train_loss and val_loss
+
+if (exists("result")) {
+  history_df <- tibble(
+    epoch = seq_along(result$history$train_loss),
+    train = result$history$train_loss,
+    val = result$history$val_loss
+  ) %>%
+    pivot_longer(cols = c(train, val), names_to = "split", values_to = "loss")
+
+  ggplot(history_df, aes(epoch, loss, color = split)) +
+    geom_line(linewidth = 1) +
+    labs(title = "3D U-Net Training History",
+         x = "Epoch", y = "Loss (Dice + CE)") +
+    scale_color_manual(values = c(train = "#2563eb", val = "#dc2626")) +
+    theme_minimal()
+}
+```
+
+## Step 6: Evaluate Segmentation
+
+```{r evaluate}
+if (file.exists(MODEL_PATH) && length(val_mri) > 0) {
+  dice_scores <- c()
+
+  for (i in seq_along(val_mri)) {
+    mri <- readRDS(val_mri[i])
+    gt_seg <- readRDS(val_seg[i])
+
+    pred_seg <- predict_segmentation(MODEL_PATH, mri)
+
+    dice <- compute_dice(pred_seg > 0, gt_seg > 0)
+    dice_scores <- c(dice_scores, dice)
+  }
+
+  cat("Validation Dice Scores:\n")
+  cat("  Mean:", round(mean(dice_scores), 4), "\n")
+  cat("  Std:", round(sd(dice_scores), 4), "\n")
+  cat("  Min:", round(min(dice_scores), 4), "\n")
+  cat("  Max:", round(max(dice_scores), 4), "\n")
+}
+```
+
+## Step 7: Visualize Predictions
+
+```{r viz_pred, fig.width=12, fig.height=4}
+if (file.exists(MODEL_PATH) && length(val_mri) > 0) {
+  mri <- readRDS(val_mri[1])
+  gt <- readRDS(val_seg[1])
+  pred <- predict_segmentation(MODEL_PATH, mri)
+
+  z <- dim(gt)[3] %/% 2
+
+  # Pick first modality channel for display
+  if (length(dim(mri)) == 4) {
+    mri_slice <- mri[, , z, 1]
+  } else {
+    mri_slice <- mri[, , z]
+  }
+  gt_slice <- gt[, , z]
+  pred_slice <- pred[, , z]
+
+  df_mri <- expand.grid(x = seq_len(nrow(mri_slice)), y = seq_len(ncol(mri_slice)))
+  df_mri$val <- as.vector(mri_slice)
+
+  df_gt <- df_mri; df_gt$val <- as.vector(gt_slice)
+  df_pr <- df_mri; df_pr$val <- as.vector(pred_slice)
+
+  p1 <- ggplot(df_mri, aes(x, y, fill = val)) + geom_raster() +
+    scale_fill_viridis_c() + coord_fixed() + labs(title = "MRI") +
+    theme_void() + theme(legend.position = "none")
+
+  p2 <- ggplot(df_gt, aes(x, y, fill = factor(val))) + geom_raster() +
+    scale_fill_manual(values = c("0"="black","1"="yellow","2"="green","3"="red")) +
+    coord_fixed() + labs(title = "Ground Truth") +
+    theme_void() + theme(legend.position = "none")
+
+  p3 <- ggplot(df_pr, aes(x, y, fill = factor(val))) + geom_raster() +
+    scale_fill_manual(values = c("0"="black","1"="yellow","2"="green","3"="red")) +
+    coord_fixed() + labs(title = "Prediction") +
+    theme_void() + theme(legend.position = "none")
+
+  p1 + p2 + p3
+}
+```

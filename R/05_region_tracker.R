@@ -16,7 +16,7 @@ compute_matching_score <- function(region_a, region_b,
   iou <- compute_iou(region_a$mask, region_b$mask)
 
   dist <- euclidean_distance(region_a$centroid, region_b$centroid)
-  spatial_sim <- exp(-dist / 20)
+  spatial_sim <- if (is.na(dist)) 0 else exp(-dist / 20)
 
   vol_a <- region_a$volume_cm3
   vol_b <- region_b$volume_cm3

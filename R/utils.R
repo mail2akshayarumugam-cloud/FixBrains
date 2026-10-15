@@ -25,6 +25,7 @@ mm3_to_cm3 <- function(vol_mm3) {
 }
 
 euclidean_distance <- function(p1, p2) {
+  if (any(is.na(p1)) || any(is.na(p2))) return(NA_real_)
   sqrt(sum((p1 - p2)^2))
 }
 

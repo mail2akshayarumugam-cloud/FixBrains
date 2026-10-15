@@ -157,6 +157,11 @@ load_full_patient <- function(patient_path, seg_method = "deepbratumia") {
   week_dirs <- list.dirs(patient_path, recursive = FALSE, full.names = TRUE)
   week_dirs <- week_dirs[grepl("^week-", basename(week_dirs))]
 
+  if (length(week_dirs) == 0) {
+    log_msg("No timepoint folders found in: ", patient_path, level = "WARN")
+    return(list(patient_id = pid, timepoints = list(), path = patient_path))
+  }
+
   week_nums <- sapply(basename(week_dirs), parse_week_number)
   ord <- order(week_nums)
   week_dirs <- week_dirs[ord]

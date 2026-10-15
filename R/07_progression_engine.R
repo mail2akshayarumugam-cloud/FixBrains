@@ -81,12 +81,23 @@ analyze_region_trajectory <- function(region_volumes, time_weeks) {
 
 classify_patient_progression <- function(region_trajectories, events,
                                           threshold_pd = 0.25) {
+  if (length(region_trajectories) == 0) {
+    return(list(classification = "SD", confidence = 0.1,
+                evidence = list(n_growing = 0, n_shrinking = 0, n_stable = 0,
+                                n_appeared = 0, n_disappeared = 0,
+                                has_splits = FALSE, has_new_regions = FALSE)))
+  }
+
   trends <- sapply(region_trajectories, `[[`, "trend")
   growth_rates <- sapply(region_trajectories, `[[`, "growth_rate_cm3_per_week")
 
+  evt_types <- if (!is.null(events) && nrow(events) > 0 && "event_type" %in% names(events)) {
+    events$event_type
+  } else character(0)
+
   has_significant_growth <- any(trends == "GROWTH")
-  has_new_regions <- any(events$event_type == "APPEARANCE")
-  has_splits <- any(events$event_type == "SPLIT")
+  has_new_regions <- any(evt_types == "APPEARANCE")
+  has_splits <- any(evt_types == "SPLIT")
   all_shrinking <- all(trends %in% c("SHRINKAGE", "DISAPPEARED", "ABSENT"))
   all_stable <- all(trends == "STABLE")
   all_gone <- all(trends %in% c("DISAPPEARED", "ABSENT"))
@@ -157,8 +168,11 @@ generate_patient_report <- function(patient_id, region_table, event_table,
     cat("Events:\n")
     for (i in seq_len(nrow(event_table))) {
       e <- event_table[i, ]
-      cat(sprintf("  [%s] %s\n", e$event_type,
-                  if (!is.na(e$region)) e$region else ""))
+      detail <- if ("region" %in% names(e) && !is.na(e$region)) e$region
+                else if ("from_region" %in% names(e) && !is.na(e$from_region))
+                  paste(e$from_region, "→", e$to_region)
+                else ""
+      cat(sprintf("  [%s] %s\n", e$event_type, detail))
     }
     cat("\n")
   }
@@ -170,4 +184,8 @@ generate_patient_report <- function(patient_id, region_table, event_table,
   invisible(NULL)
 }
 
-`%||%` <- function(x, y) if (is.null(x) || is.na(x)) y else x
+`%||%` <- function(x, y) {
+  if (is.null(x) || length(x) == 0) return(y)
+  if (is.na(x) || is.nan(x) || is.infinite(x)) return(y)
+  x
+}

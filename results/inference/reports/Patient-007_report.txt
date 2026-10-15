@@ -1,0 +1,42 @@
+PATIENT: Patient-007 
+Timepoints: 10 
+Regions: 35 
+Events: 38 
+Progression: PR 
+Confidence: 0.8 
+
+Reasoning:
+
+Regions:
+# A tibble: 35 × 14
+   patient_id  timepoint region_id seg_label region_type volume_mm3 volume_cm3
+   <chr>       <chr>     <chr>         <int> <chr>            <dbl>      <dbl>
+ 1 Patient-007 week-000  R001              1 necrosis         24022     24.0  
+ 2 Patient-007 week-000  R002              2 edema            20769     20.8  
+ 3 Patient-007 week-000  R003              2 edema             1929      1.93 
+ 4 Patient-007 week-000  R004              2 edema               80      0.08 
+ 5 Patient-007 week-000  R005              3 enhancing        46045     46.0  
+ 6 Patient-007 week-001  R001              2 edema            25858     25.9  
+ 7 Patient-007 week-001  R002              3 enhancing        37625     37.6  
+ 8 Patient-007 week-015  R001              2 edema              727      0.727
+ 9 Patient-007 week-015  R002              2 edema              114      0.114
+10 Patient-007 week-015  R003              3 enhancing         2649      2.65 
+# ℹ 25 more rows
+# ℹ 7 more variables: centroid_x <dbl>, centroid_y <dbl>, centroid_z <dbl>,
+#   bbox_size_x <dbl>, bbox_size_y <dbl>, bbox_size_z <dbl>, n_voxels <int>
+
+Events:
+# A tibble: 38 × 8
+   patient_id  event_type    from_tp  to_tp  from_region to_region  score region
+   <chr>       <chr>         <chr>    <chr>  <chr>       <chr>      <dbl> <chr> 
+ 1 Patient-007 CONTINUATION  week-000 week-… R002        R001       0.792 <NA>  
+ 2 Patient-007 CONTINUATION  week-000 week-… R005        R002       0.744 <NA>  
+ 3 Patient-007 DISAPPEARANCE week-000 week-… <NA>        <NA>      NA     R001  
+ 4 Patient-007 DISAPPEARANCE week-000 week-… <NA>        <NA>      NA     R003  
+ 5 Patient-007 DISAPPEARANCE week-000 week-… <NA>        <NA>      NA     R004  
+ 6 Patient-007 CONTINUATION  week-001 week-… R002        R003       0.318 <NA>  
+ 7 Patient-007 CONTINUATION  week-001 week-… R001        R001       0.256 <NA>  
+ 8 Patient-007 APPEARANCE    week-001 week-… <NA>        <NA>      NA     R002  
+ 9 Patient-007 CONTINUATION  week-015 week-… R003        R001       0.556 <NA>  
+10 Patient-007 DISAPPEARANCE week-015 week-… <NA>        <NA>      NA     R001  
+# ℹ 28 more rows

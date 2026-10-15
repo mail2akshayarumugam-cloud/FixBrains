@@ -1,0 +1,482 @@
+---
+title: "3D U-Net Training — Tumor Segmentation"
+subtitle: "LUMIERE Dataset | R torch | GPU (Colab)"
+output: html_document
+---
+
+# Setup
+
+Upload the `data/training/` folder to your Google Drive first.
+Run `R/10_export_training_data.R` locally to generate it.
+
+```{r setup}
+# Install packages if needed (run once on Colab)
+if (!requireNamespace("torch", quietly = TRUE)) {
+  install.packages("torch")
+  torch::install_torch(type = "gpu")
+}
+if (!requireNamespace("tidyverse", quietly = TRUE)) install.packages("tidyverse")
+if (!requireNamespace("luz", quietly = TRUE)) install.packages("luz")
+if (!requireNamespace("coro", quietly = TRUE)) install.packages("coro")
+
+library(torch)
+library(luz)
+library(tidyverse)
+library(coro)
+
+device <- if (cuda_is_available()) "cuda" else "cpu"
+cat("Device:", device, "\n")
+if (device == "cuda") cat("GPU:", cuda_get_device_name(0), "\n")
+```
+
+```{r config}
+# === CONFIGURATION ===
+# Change DATA_DIR to your Google Drive mount path
+DATA_DIR <- "/content/drive/MyDrive/R_project/data/training"
+# Or if running locally:
+# DATA_DIR <- "C:/Users/mail2/OneDrive/Desktop/R project 1/data/training"
+
+MODEL_SAVE_PATH <- file.path(dirname(DATA_DIR), "models", "unet_3d_trained.pt")
+dir.create(dirname(MODEL_SAVE_PATH), showWarnings = FALSE, recursive = TRUE)
+
+BATCH_SIZE <- 2L    # Increase to 4 if GPU has 16GB+ VRAM
+EPOCHS <- 50L
+LEARNING_RATE <- 1e-4
+N_CLASSES <- 4L     # background, necrosis, edema, enhancing
+IN_CHANNELS <- 4L   # T1, T1c, T2, FLAIR
+BASE_FILTERS <- 16L
+TRAIN_SPLIT <- 0.8
+```
+
+# Load Data
+
+```{r load_manifest}
+manifest <- read_csv(file.path(DATA_DIR, "manifest.csv"), show_col_types = FALSE)
+cat("Total samples:", nrow(manifest), "\n")
+cat("Patients:", n_distinct(manifest$patient_id), "\n")
+
+# Filter out samples with no tumor
+manifest <- manifest %>% filter(tumor_voxels > 0)
+cat("Samples with tumor:", nrow(manifest), "\n")
+
+# Show label distribution
+manifest %>%
+  count(seg_labels) %>%
+  arrange(desc(n)) %>%
+  print()
+```
+
+```{r train_val_split}
+set.seed(42)
+patient_ids <- unique(manifest$patient_id)
+n_train <- floor(length(patient_ids) * TRAIN_SPLIT)
+train_patients <- sample(patient_ids, n_train)
+val_patients <- setdiff(patient_ids, train_patients)
+
+train_manifest <- manifest %>% filter(patient_id %in% train_patients)
+val_manifest <- manifest %>% filter(patient_id %in% val_patients)
+
+cat("Train:", nrow(train_manifest), "samples from", length(train_patients), "patients\n")
+cat("Val:  ", nrow(val_manifest), "samples from", length(val_patients), "patients\n")
+```
+
+# Dataset & DataLoader
+
+```{r dataset}
+tumor_dataset <- dataset(
+  "TumorDataset",
+  initialize = function(manifest_df, data_dir, augment = FALSE) {
+    self$manifest <- manifest_df
+    self$data_dir <- data_dir
+    self$augment <- augment
+  },
+  .getitem = function(i) {
+    row <- self$manifest[i, ]
+    mri <- torch_load(file.path(self$data_dir, row$mri_file))$to(dtype = torch_float())
+    seg <- torch_load(file.path(self$data_dir, row$seg_file))$to(dtype = torch_long())
+
+    # Random augmentation during training
+    if (self$augment) {
+      # Random flip along each axis
+      if (runif(1) > 0.5) {
+        mri <- torch_flip(mri, 2)  # flip X
+        seg <- torch_flip(seg, 1)
+      }
+      if (runif(1) > 0.5) {
+        mri <- torch_flip(mri, 3)  # flip Y
+        seg <- torch_flip(seg, 2)
+      }
+      # Random intensity scaling
+      scale <- 0.9 + runif(1) * 0.2  # 0.9 to 1.1
+      mri <- mri * scale
+    }
+
+    list(x = mri, y = seg)
+  },
+  .length = function() {
+    nrow(self$manifest)
+  }
+)
+
+train_ds <- tumor_dataset(train_manifest, DATA_DIR, augment = TRUE)
+val_ds <- tumor_dataset(val_manifest, DATA_DIR, augment = FALSE)
+
+train_dl <- dataloader(train_ds, batch_size = BATCH_SIZE, shuffle = TRUE,
+                        num_workers = 0)
+val_dl <- dataloader(val_ds, batch_size = BATCH_SIZE, shuffle = FALSE,
+                      num_workers = 0)
+
+# Verify data loading
+batch <- train_dl$.iter()$.next()
+cat("MRI batch shape:", paste(dim(batch$x), collapse = "x"), "\n")
+cat("Seg batch shape:", paste(dim(batch$y), collapse = "x"), "\n")
+cat("MRI range:", round(batch$x$min()$item(), 2), "to", round(batch$x$max()$item(), 2), "\n")
+cat("Seg labels:", paste(sort(unique(as.integer(batch$y$cpu()))), collapse = ","), "\n")
+```
+
+# 3D U-Net Model
+
+```{r model_definition}
+conv_block_3d <- nn_module(
+  "ConvBlock3D",
+  initialize = function(in_ch, out_ch) {
+    self$conv1 <- nn_conv3d(in_ch, out_ch, kernel_size = 3, padding = 1)
+    self$bn1   <- nn_batch_norm3d(out_ch)
+    self$conv2 <- nn_conv3d(out_ch, out_ch, kernel_size = 3, padding = 1)
+    self$bn2   <- nn_batch_norm3d(out_ch)
+    self$relu  <- nn_relu()
+  },
+  forward = function(x) {
+    x <- self$relu(self$bn1(self$conv1(x)))
+    x <- self$relu(self$bn2(self$conv2(x)))
+    x
+  }
+)
+
+encoder_block_3d <- nn_module(
+  "EncoderBlock3D",
+  initialize = function(in_ch, out_ch) {
+    self$conv_block <- conv_block_3d(in_ch, out_ch)
+    self$pool <- nn_max_pool3d(kernel_size = 2, stride = 2)
+  },
+  forward = function(x) {
+    features <- self$conv_block(x)
+    pooled <- self$pool(features)
+    list(features = features, pooled = pooled)
+  }
+)
+
+decoder_block_3d <- nn_module(
+  "DecoderBlock3D",
+  initialize = function(in_ch, out_ch) {
+    self$upconv <- nn_conv_transpose3d(in_ch, out_ch, kernel_size = 2, stride = 2)
+    self$conv_block <- conv_block_3d(out_ch * 2, out_ch)
+  },
+  forward = function(x, skip) {
+    x <- self$upconv(x)
+    diff_d <- skip$size(3) - x$size(3)
+    diff_h <- skip$size(4) - x$size(4)
+    diff_w <- skip$size(5) - x$size(5)
+    x <- nnf_pad(x, c(
+      diff_w %/% 2, diff_w - diff_w %/% 2,
+      diff_h %/% 2, diff_h - diff_h %/% 2,
+      diff_d %/% 2, diff_d - diff_d %/% 2
+    ))
+    x <- torch_cat(list(x, skip), dim = 2)
+    self$conv_block(x)
+  }
+)
+
+unet_3d <- nn_module(
+  "UNet3D",
+  initialize = function(in_channels = 4L, n_classes = 4L, base_filters = 16L) {
+    f <- base_filters
+    self$enc1 <- encoder_block_3d(in_channels, f)
+    self$enc2 <- encoder_block_3d(f, f * 2L)
+    self$enc3 <- encoder_block_3d(f * 2L, f * 4L)
+    self$enc4 <- encoder_block_3d(f * 4L, f * 8L)
+    self$bottleneck <- conv_block_3d(f * 8L, f * 16L)
+    self$dec4 <- decoder_block_3d(f * 16L, f * 8L)
+    self$dec3 <- decoder_block_3d(f * 8L, f * 4L)
+    self$dec2 <- decoder_block_3d(f * 4L, f * 2L)
+    self$dec1 <- decoder_block_3d(f * 2L, f)
+    self$final_conv <- nn_conv3d(f, n_classes, kernel_size = 1)
+  },
+  forward = function(x) {
+    e1 <- self$enc1(x);  e2 <- self$enc2(e1$pooled)
+    e3 <- self$enc3(e2$pooled); e4 <- self$enc4(e3$pooled)
+    b <- self$bottleneck(e4$pooled)
+    d4 <- self$dec4(b, e4$features); d3 <- self$dec3(d4, e3$features)
+    d2 <- self$dec2(d3, e2$features); d1 <- self$dec1(d2, e1$features)
+    self$final_conv(d1)
+  }
+)
+
+model <- unet_3d(IN_CHANNELS, N_CLASSES, BASE_FILTERS)
+model <- model$to(device = device)
+n_params <- sum(sapply(model$parameters, function(p) prod(p$shape)))
+cat("3D U-Net parameters:", format(n_params, big.mark = ","), "\n")
+```
+
+# Loss Functions
+
+```{r loss}
+dice_loss <- function(pred, target, smooth = 1.0) {
+  pred_soft <- nnf_softmax(pred, dim = 2)
+  n_classes <- pred$size(2)
+  total_loss <- torch_tensor(0, device = pred$device)
+
+  for (c in seq_len(n_classes)) {
+    pred_c <- pred_soft[, c, , , ]
+    target_c <- (target == (c - 1L))$to(dtype = torch_float())
+    intersection <- (pred_c * target_c)$sum()
+    union_val <- pred_c$sum() + target_c$sum()
+    dice <- (2 * intersection + smooth) / (union_val + smooth)
+    total_loss <- total_loss + (1 - dice)
+  }
+
+  total_loss / n_classes
+}
+
+combined_loss <- function(pred, target) {
+  ce <- nnf_cross_entropy(pred, target$to(dtype = torch_long()))
+  dl <- dice_loss(pred, target)
+  0.5 * ce + 0.5 * dl
+}
+```
+
+# Training Loop
+
+```{r training}
+optimizer <- optim_adam(model$parameters, lr = LEARNING_RATE, weight_decay = 1e-5)
+scheduler <- lr_step(optimizer, step_size = 20L, gamma = 0.5)
+
+best_val_loss <- Inf
+best_val_dice <- 0
+history <- list(train_loss = c(), val_loss = c(), val_dice = c())
+patience_counter <- 0
+patience <- 10
+
+compute_dice_score <- function(pred, target, n_classes = 4L) {
+  pred_class <- pred$argmax(dim = 2)
+  scores <- c()
+  for (c in 2:n_classes) {  # Skip background (class 0)
+    pred_c <- (pred_class == (c - 1L))$to(dtype = torch_float())
+    target_c <- (target == (c - 1L))$to(dtype = torch_float())
+    intersection <- (pred_c * target_c)$sum()$item()
+    union_val <- pred_c$sum()$item() + target_c$sum()$item()
+    dice <- if (union_val > 0) 2 * intersection / union_val else 1.0
+    scores <- c(scores, dice)
+  }
+  mean(scores)
+}
+
+cat("\nStarting training...\n\n")
+
+for (epoch in seq_len(EPOCHS)) {
+  # Train
+  model$train()
+  train_losses <- c()
+
+  coro::loop(for (batch in train_dl) {
+    x <- batch$x$to(device = device)
+    y <- batch$y$to(device = device)
+
+    optimizer$zero_grad()
+    pred <- model(x)
+    loss <- combined_loss(pred, y)
+    loss$backward()
+    nn_utils_clip_grad_norm_(model$parameters, max_norm = 1.0)
+    optimizer$step()
+
+    train_losses <- c(train_losses, loss$item())
+  })
+
+  avg_train_loss <- mean(train_losses)
+
+  # Validate
+  model$eval()
+  val_losses <- c()
+  val_dices <- c()
+
+  with_no_grad({
+    coro::loop(for (batch in val_dl) {
+      x <- batch$x$to(device = device)
+      y <- batch$y$to(device = device)
+      pred <- model(x)
+      loss <- combined_loss(pred, y)
+      val_losses <- c(val_losses, loss$item())
+      val_dices <- c(val_dices, compute_dice_score(pred, y, N_CLASSES))
+    })
+  })
+
+  avg_val_loss <- mean(val_losses)
+  avg_val_dice <- mean(val_dices)
+  scheduler$step()
+
+  history$train_loss <- c(history$train_loss, avg_train_loss)
+  history$val_loss <- c(history$val_loss, avg_val_loss)
+  history$val_dice <- c(history$val_dice, avg_val_dice)
+
+  msg <- sprintf("Epoch %02d/%d | Train Loss: %.4f | Val Loss: %.4f | Val Dice: %.4f",
+                 epoch, EPOCHS, avg_train_loss, avg_val_loss, avg_val_dice)
+
+  if (avg_val_dice > best_val_dice) {
+    best_val_dice <- avg_val_dice
+    best_val_loss <- avg_val_loss
+    torch_save(model, MODEL_SAVE_PATH)
+    msg <- paste0(msg, " *BEST*")
+    patience_counter <- 0
+  } else {
+    patience_counter <- patience_counter + 1
+  }
+
+  cat(msg, "\n")
+
+  if (patience_counter >= patience) {
+    cat("Early stopping at epoch", epoch, "\n")
+    break
+  }
+}
+
+cat("\n========================================\n")
+cat("Training Complete\n")
+cat("Best Val Dice:", round(best_val_dice, 4), "\n")
+cat("Best Val Loss:", round(best_val_loss, 4), "\n")
+cat("Model saved:", MODEL_SAVE_PATH, "\n")
+cat("========================================\n")
+```
+
+# Training Curves
+
+```{r training_curves, fig.width=14, fig.height=5}
+library(patchwork)
+
+p1 <- tibble(
+  epoch = seq_along(history$train_loss),
+  Train = history$train_loss,
+  Val = history$val_loss
+) %>%
+  pivot_longer(-epoch, names_to = "Split", values_to = "Loss") %>%
+  ggplot(aes(epoch, Loss, color = Split)) +
+  geom_line(linewidth = 1.2) +
+  labs(title = "Training & Validation Loss") +
+  scale_color_manual(values = c(Train = "#2563eb", Val = "#dc2626")) +
+  theme_minimal(base_size = 13)
+
+p2 <- tibble(epoch = seq_along(history$val_dice), Dice = history$val_dice) %>%
+  ggplot(aes(epoch, Dice)) +
+  geom_line(linewidth = 1.2, color = "#059669") +
+  geom_hline(yintercept = best_val_dice, linetype = "dashed", color = "gray50") +
+  labs(title = paste("Validation Dice Score (Best:", round(best_val_dice, 4), ")")) +
+  theme_minimal(base_size = 13)
+
+p1 + p2 + plot_annotation(title = "3D U-Net Training on LUMIERE Dataset")
+```
+
+# Evaluate on Validation Set
+
+```{r evaluation}
+model <- torch_load(MODEL_SAVE_PATH)
+model <- model$to(device = device)
+model$eval()
+
+class_names <- c("Necrosis", "Edema", "Enhancing")
+per_class_dice <- matrix(0, nrow = nrow(val_manifest), ncol = 3)
+
+with_no_grad({
+  for (i in seq_len(nrow(val_manifest))) {
+    row <- val_manifest[i, ]
+    mri <- torch_load(file.path(DATA_DIR, row$mri_file))$unsqueeze(1)$to(device = device)
+    seg <- torch_load(file.path(DATA_DIR, row$seg_file))$unsqueeze(1)$to(device = device)
+
+    pred <- model(mri)
+    pred_class <- pred$argmax(dim = 2)
+
+    for (c in 1:3) {
+      pred_c <- (pred_class == c)$to(dtype = torch_float())
+      target_c <- (seg == c)$to(dtype = torch_float())
+      intersection <- (pred_c * target_c)$sum()$item()
+      union_val <- pred_c$sum()$item() + target_c$sum()$item()
+      per_class_dice[i, c] <- if (union_val > 0) 2 * intersection / union_val else NA
+    }
+  }
+})
+
+cat("\nPer-Class Dice Scores (Validation Set):\n")
+for (c in 1:3) {
+  scores <- per_class_dice[, c]
+  scores <- scores[!is.na(scores)]
+  cat(sprintf("  %s: %.4f +/- %.4f (n=%d)\n",
+              class_names[c], mean(scores), sd(scores), length(scores)))
+}
+cat(sprintf("  Overall: %.4f\n", mean(per_class_dice, na.rm = TRUE)))
+```
+
+# Visual Results
+
+```{r visual_results, fig.width=14, fig.height=8}
+# Show predictions for first 4 validation samples
+n_show <- min(4, nrow(val_manifest))
+plots <- list()
+
+with_no_grad({
+  for (i in seq_len(n_show)) {
+    row <- val_manifest[i, ]
+    mri <- torch_load(file.path(DATA_DIR, row$mri_file))$unsqueeze(1)$to(device = device)
+    seg_gt <- torch_load(file.path(DATA_DIR, row$seg_file))
+
+    pred <- model(mri)
+    seg_pred <- as.array(pred$argmax(dim = 2)$squeeze(1)$cpu())
+    seg_gt <- as.array(seg_gt)
+
+    z <- dim(seg_gt)[3] %/% 2
+
+    df_gt <- expand.grid(x = seq_len(dim(seg_gt)[1]), y = seq_len(dim(seg_gt)[2]))
+    df_gt$label <- factor(as.vector(seg_gt[, , z]))
+    df_pred <- expand.grid(x = seq_len(dim(seg_pred)[1]), y = seq_len(dim(seg_pred)[2]))
+    df_pred$label <- factor(as.vector(seg_pred[, , z]))
+
+    seg_colors <- c("0" = "black", "1" = "#e74c3c", "2" = "#f39c12", "3" = "#2ecc71")
+
+    p_gt <- ggplot(df_gt, aes(x, y, fill = label)) +
+      geom_raster() + scale_fill_manual(values = seg_colors, guide = "none") +
+      coord_fixed() + labs(title = paste(row$patient_id, "- Ground Truth")) +
+      theme_void() + theme(plot.title = element_text(hjust = 0.5, size = 10))
+
+    p_pr <- ggplot(df_pred, aes(x, y, fill = label)) +
+      geom_raster() + scale_fill_manual(values = seg_colors, guide = "none") +
+      coord_fixed() + labs(title = "Prediction") +
+      theme_void() + theme(plot.title = element_text(hjust = 0.5, size = 10))
+
+    plots <- c(plots, list(p_gt, p_pr))
+  }
+})
+
+wrap_plots(plots, ncol = 4) +
+  plot_annotation(title = "3D U-Net Segmentation: Ground Truth vs Prediction")
+```
+
+# Save Final Results
+
+```{r save}
+results <- tibble(
+  metric = c("Best Val Dice", "Best Val Loss",
+             paste("Dice -", class_names),
+             "Overall Dice", "Epochs Trained", "Parameters"),
+  value = c(
+    round(best_val_dice, 4),
+    round(best_val_loss, 4),
+    round(colMeans(per_class_dice, na.rm = TRUE), 4),
+    round(mean(per_class_dice, na.rm = TRUE), 4),
+    length(history$train_loss),
+    format(n_params, big.mark = ",")
+  )
+)
+
+print(results)
+write_csv(results, file.path(dirname(MODEL_SAVE_PATH), "unet_results.csv"))
+
+cat("\nDone. Download the trained model from:", MODEL_SAVE_PATH, "\n")
+cat("Place it in your local project: models/unet_3d_trained.pt\n")
+```

@@ -121,7 +121,7 @@ for (i in seq_along(patient_dirs)) {
   if (is.null(preprocessed)) next
 
   result <- tryCatch(
-    run_full_inference_pipeline(patient_data, preprocessed, MODEL_PATH, device),
+    run_full_inference_pipeline(patient_data, preprocessed, MODEL_PATH, device, preloaded_model = model),
     error = function(e) { cat("  INFERENCE FAIL:", e$message, "\n"); NULL }
   )
   if (is.null(result)) next

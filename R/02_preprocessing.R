@@ -29,7 +29,10 @@ zscore_normalize <- function(volume, brain_mask = NULL) {
 }
 
 create_brain_mask <- function(volume, threshold_quantile = 0.05) {
-  thresh <- quantile(volume[volume > 0], threshold_quantile, na.rm = TRUE)
+  pos_voxels <- volume[volume > 0]
+  if (length(pos_voxels) == 0) return(array(0L, dim = dim(volume)))
+
+  thresh <- quantile(pos_voxels, threshold_quantile, na.rm = TRUE)
   mask <- array(0L, dim = dim(volume))
   mask[volume > thresh] <- 1L
 
@@ -200,7 +203,6 @@ preprocess_full_patient <- function(patient_data, target_size = c(128, 128, 128)
     stacked <- stack_modalities(processed)
 
     results[[tp_name]] <- list(
-      volumes = processed,
       stacked = stacked,
       segmentation = seg,
       modalities_available = names(processed)

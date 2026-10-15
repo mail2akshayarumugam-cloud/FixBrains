@@ -182,7 +182,7 @@ train_lstm <- function(train_sequences, train_labels,
   model <- model$to(device = device)
   optimizer <- optim_adam(model$parameters, lr = lr, weight_decay = 1e-4)
 
-  class_counts <- table(factor(train_labels, levels = 1:n_classes))
+  class_counts <- table(factor(train_labels, levels = 0:(n_classes - 1L)))
   class_counts[class_counts == 0] <- 1
   class_weights <- 1.0 / (class_counts / sum(class_counts))
   class_weights <- class_weights / sum(class_weights) * length(class_weights)

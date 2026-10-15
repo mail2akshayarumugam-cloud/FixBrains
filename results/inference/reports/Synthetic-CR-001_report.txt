@@ -1,0 +1,32 @@
+PATIENT: Synthetic-CR-001 
+Timepoints: 3 
+Regions: 6 
+Events: 6 
+Progression: CR 
+Confidence: 0.9 
+
+Reasoning:
+
+Regions:
+# A tibble: 6 × 14
+  patient_id     timepoint region_id seg_label region_type volume_mm3 volume_cm3
+  <chr>          <chr>     <chr>         <int> <chr>            <dbl>      <dbl>
+1 Synthetic-CR-… week-000  R001              1 necrosis           739      0.739
+2 Synthetic-CR-… week-000  R002              2 edema             7548      7.55 
+3 Synthetic-CR-… week-000  R003              3 enhancing         3172      3.17 
+4 Synthetic-CR-… week-008  R001              1 necrosis            57      0.057
+5 Synthetic-CR-… week-008  R002              2 edema              590      0.59 
+6 Synthetic-CR-… week-008  R003              3 enhancing          248      0.248
+# ℹ 7 more variables: centroid_x <dbl>, centroid_y <dbl>, centroid_z <dbl>,
+#   bbox_size_x <dbl>, bbox_size_y <dbl>, bbox_size_z <dbl>, n_voxels <int>
+
+Events:
+# A tibble: 6 × 7
+  patient_id       event_type    from_tp  to_tp    from_region to_region  score
+  <chr>            <chr>         <chr>    <chr>    <chr>       <chr>      <dbl>
+1 Synthetic-CR-001 CONTINUATION  week-000 week-008 R001        R002       0.702
+2 Synthetic-CR-001 CONTINUATION  week-000 week-008 R003        R003       0.416
+3 Synthetic-CR-001 CONTINUATION  week-000 week-008 R002        R001       0.302
+4 Synthetic-CR-001 DISAPPEARANCE week-008 week-020 <NA>        <NA>      NA    
+5 Synthetic-CR-001 DISAPPEARANCE week-008 week-020 <NA>        <NA>      NA    
+6 Synthetic-CR-001 DISAPPEARANCE week-008 week-020 <NA>        <NA>      NA    

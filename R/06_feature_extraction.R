@@ -134,7 +134,7 @@ compute_longitudinal_features <- function(region_table, tracking_events) {
       if (nrow(r1) == 0 || nrow(r2) == 0) next
 
       abs_change <- r2$volume_cm3 - r1$volume_cm3
-      pct_change <- if (r1$volume_cm3 > 0) abs_change / r1$volume_cm3 else NA
+      pct_change <- if (r1$volume_cm3 > 1e-8) abs_change / r1$volume_cm3 else NA_real_
 
       centroid_disp <- euclidean_distance(
         c(r1$centroid_x, r1$centroid_y, r1$centroid_z),
@@ -190,8 +190,12 @@ compute_patient_summary_features <- function(region_table, event_table, long_fea
     n_growing <- if (nrow(pt_long) > 0) sum(pt_long$pct_volume_change > 0.25, na.rm = TRUE) else 0
     n_shrinking <- if (nrow(pt_long) > 0) sum(pt_long$pct_volume_change < -0.25, na.rm = TRUE) else 0
 
-    max_growth_rate <- if (nrow(pt_long) > 0) max(pt_long$pct_volume_change, na.rm = TRUE) else 0
-    max_centroid_disp <- if (nrow(pt_long) > 0) max(pt_long$centroid_displacement, na.rm = TRUE) else 0
+    max_growth_rate <- if (nrow(pt_long) > 0 && any(!is.na(pt_long$pct_volume_change))) {
+      max(pt_long$pct_volume_change, na.rm = TRUE)
+    } else 0
+    max_centroid_disp <- if (nrow(pt_long) > 0 && any(!is.na(pt_long$centroid_displacement))) {
+      max(pt_long$centroid_displacement, na.rm = TRUE)
+    } else 0
 
     n_appearances <- sum(pt_events$event_type == "APPEARANCE")
     n_disappearances <- sum(pt_events$event_type == "DISAPPEARANCE")

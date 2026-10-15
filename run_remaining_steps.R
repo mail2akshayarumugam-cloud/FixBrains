@@ -93,13 +93,13 @@ for (pid in names(all_progressions)) {
 
   lstm_sequences <- c(lstm_sequences, list(seq_mat))
   prog <- all_progressions[[pid]]$classification
-  lstm_labels <- c(lstm_labels, match(prog, c("CR", "PR", "SD", "PD")))
+  lstm_labels <- c(lstm_labels, match(prog, c("CR", "PR", "SD", "PD")) - 1L)
 }
 
 cat("LSTM sequences:", length(lstm_sequences), "\n")
 cat("Label distribution:\n")
 if (length(lstm_labels) > 0) {
-  print(table(c("CR", "PR", "SD", "PD")[lstm_labels]))
+  print(table(c("CR", "PR", "SD", "PD")[lstm_labels + 1]))
 }
 
 lstm_result <- NULL

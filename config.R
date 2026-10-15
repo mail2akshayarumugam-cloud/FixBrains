@@ -2,7 +2,10 @@
 # Project Configuration
 # ──────────────────────────────────────────────────────────────
 
-PROJECT_ROOT <- normalizePath(dirname(sys.frame(1)$ofile), winslash = "/")
+PROJECT_ROOT <- tryCatch(
+  normalizePath(dirname(sys.frame(1)$ofile), winslash = "/"),
+  error = function(e) normalizePath(".", winslash = "/")
+)
 
 PATHS <- list(
   raw_data     = file.path(PROJECT_ROOT, "data", "raw", "LUMIERE"),

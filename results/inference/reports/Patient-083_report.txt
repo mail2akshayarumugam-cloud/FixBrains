@@ -1,9 +1,9 @@
 PATIENT: Patient-083 
 Timepoints: 3 
 Regions: 8 
-Events: 6 
-Progression: PR 
-Confidence: 0.5 
+Events: 8 
+Progression: PD 
+Confidence: 0.85 
 
 Reasoning:
 
@@ -11,24 +11,26 @@ Regions:
 # A tibble: 8 × 14
   patient_id  timepoint region_id seg_label region_type volume_mm3 volume_cm3
   <chr>       <chr>     <chr>         <int> <chr>            <dbl>      <dbl>
-1 Patient-083 week-000  R001              1 necrosis        102334    102.   
-2 Patient-083 week-000  R002              2 edema             3111      3.11 
-3 Patient-083 week-000  R003              3 enhancing         4923      4.92 
-4 Patient-083 week-000  R004              4 enhancing           50      0.05 
-5 Patient-083 week-002  R001              1 necrosis        109959    110.   
-6 Patient-083 week-002  R002              3 enhancing          633      0.633
-7 Patient-083 week-022  R001              1 necrosis        110068    110.   
-8 Patient-083 week-022  R002              3 enhancing          524      0.524
+1 Patient-083 week-000  R001              1 necrosis         26515     26.5  
+2 Patient-083 week-000  R002              2 edema             1788      1.79 
+3 Patient-083 week-000  R003              3 enhancing        75332     75.3  
+4 Patient-083 week-002  R001              1 necrosis          4773      4.77 
+5 Patient-083 week-002  R002              1 necrosis           318      0.318
+6 Patient-083 week-002  R003              2 edema            14053     14.1  
+7 Patient-083 week-002  R004              3 enhancing        47453     47.5  
+8 Patient-083 week-022  R001              1 necrosis        110592    111.   
 # ℹ 7 more variables: centroid_x <dbl>, centroid_y <dbl>, centroid_z <dbl>,
 #   bbox_size_x <dbl>, bbox_size_y <dbl>, bbox_size_z <dbl>, n_voxels <int>
 
 Events:
-# A tibble: 6 × 8
+# A tibble: 8 × 8
   patient_id  event_type    from_tp  to_tp   from_region to_region  score region
   <chr>       <chr>         <chr>    <chr>   <chr>       <chr>      <dbl> <chr> 
-1 Patient-083 CONTINUATION  week-000 week-0… R001        R001       1     <NA>  
-2 Patient-083 CONTINUATION  week-000 week-0… R003        R002       0.381 <NA>  
-3 Patient-083 DISAPPEARANCE week-000 week-0… <NA>        <NA>      NA     R002  
-4 Patient-083 DISAPPEARANCE week-000 week-0… <NA>        <NA>      NA     R004  
-5 Patient-083 CONTINUATION  week-002 week-0… R001        R001       1     <NA>  
-6 Patient-083 CONTINUATION  week-002 week-0… R002        R002       0.594 <NA>  
+1 Patient-083 CONTINUATION  week-000 week-0… R003        R004       0.750 <NA>  
+2 Patient-083 CONTINUATION  week-000 week-0… R001        R003       0.555 <NA>  
+3 Patient-083 CONTINUATION  week-000 week-0… R002        R001       0.227 <NA>  
+4 Patient-083 APPEARANCE    week-000 week-0… <NA>        <NA>      NA     R002  
+5 Patient-083 CONTINUATION  week-002 week-0… R004        R001       0.555 <NA>  
+6 Patient-083 DISAPPEARANCE week-002 week-0… <NA>        <NA>      NA     R001  
+7 Patient-083 DISAPPEARANCE week-002 week-0… <NA>        <NA>      NA     R002  
+8 Patient-083 DISAPPEARANCE week-002 week-0… <NA>        <NA>      NA     R003  

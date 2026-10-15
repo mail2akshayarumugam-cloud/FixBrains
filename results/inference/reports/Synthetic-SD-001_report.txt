@@ -1,0 +1,35 @@
+PATIENT: Synthetic-SD-001 
+Timepoints: 3 
+Regions: 9 
+Events: 6 
+Progression: SD 
+Confidence: 0.7 
+
+Reasoning:
+
+Regions:
+# A tibble: 9 × 14
+  patient_id     timepoint region_id seg_label region_type volume_mm3 volume_cm3
+  <chr>          <chr>     <chr>         <int> <chr>            <dbl>      <dbl>
+1 Synthetic-SD-… week-000  R001              1 necrosis           251      0.251
+2 Synthetic-SD-… week-000  R002              2 edema             2774      2.77 
+3 Synthetic-SD-… week-000  R003              3 enhancing         1114      1.11 
+4 Synthetic-SD-… week-015  R001              1 necrosis           365      0.365
+5 Synthetic-SD-… week-015  R002              2 edema             3562      3.56 
+6 Synthetic-SD-… week-015  R003              3 enhancing         1570      1.57 
+7 Synthetic-SD-… week-030  R001              1 necrosis           251      0.251
+8 Synthetic-SD-… week-030  R002              2 edema             2774      2.77 
+9 Synthetic-SD-… week-030  R003              3 enhancing         1114      1.11 
+# ℹ 7 more variables: centroid_x <dbl>, centroid_y <dbl>, centroid_z <dbl>,
+#   bbox_size_x <dbl>, bbox_size_y <dbl>, bbox_size_z <dbl>, n_voxels <int>
+
+Events:
+# A tibble: 6 × 7
+  patient_id       event_type   from_tp  to_tp    from_region to_region score
+  <chr>            <chr>        <chr>    <chr>    <chr>       <chr>     <dbl>
+1 Synthetic-SD-001 CONTINUATION week-000 week-015 R001        R001      0.881
+2 Synthetic-SD-001 CONTINUATION week-000 week-015 R003        R003      0.839
+3 Synthetic-SD-001 CONTINUATION week-000 week-015 R002        R002      0.822
+4 Synthetic-SD-001 CONTINUATION week-015 week-030 R001        R001      0.881
+5 Synthetic-SD-001 CONTINUATION week-015 week-030 R003        R003      0.839
+6 Synthetic-SD-001 CONTINUATION week-015 week-030 R002        R002      0.822

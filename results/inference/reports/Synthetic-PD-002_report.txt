@@ -1,0 +1,40 @@
+PATIENT: Synthetic-PD-002 
+Timepoints: 4 
+Regions: 11 
+Events: 9 
+Progression: PD 
+Confidence: 0.85 
+
+Reasoning:
+
+Regions:
+# A tibble: 11 × 14
+   patient_id    timepoint region_id seg_label region_type volume_mm3 volume_cm3
+   <chr>         <chr>     <chr>         <int> <chr>            <dbl>      <dbl>
+ 1 Synthetic-PD… week-000  R001              2 edema              306      0.306
+ 2 Synthetic-PD… week-000  R002              3 enhancing          152      0.152
+ 3 Synthetic-PD… week-006  R001              1 necrosis           251      0.251
+ 4 Synthetic-PD… week-006  R002              2 edema             2774      2.77 
+ 5 Synthetic-PD… week-006  R003              3 enhancing         1114      1.11 
+ 6 Synthetic-PD… week-012  R001              1 necrosis           895      0.895
+ 7 Synthetic-PD… week-012  R002              2 edema             9052      9.05 
+ 8 Synthetic-PD… week-012  R003              3 enhancing         4050      4.05 
+ 9 Synthetic-PD… week-024  R001              1 necrosis          2897      2.90 
+10 Synthetic-PD… week-024  R002              2 edema            28578     28.6  
+11 Synthetic-PD… week-024  R003              3 enhancing        12522     12.5  
+# ℹ 7 more variables: centroid_x <dbl>, centroid_y <dbl>, centroid_z <dbl>,
+#   bbox_size_x <dbl>, bbox_size_y <dbl>, bbox_size_z <dbl>, n_voxels <int>
+
+Events:
+# A tibble: 9 × 8
+  patient_id       event_type  from_tp to_tp from_region to_region  score region
+  <chr>            <chr>       <chr>   <chr> <chr>       <chr>      <dbl> <chr> 
+1 Synthetic-PD-002 CONTINUATI… week-0… week… R002        R001       0.724 <NA>  
+2 Synthetic-PD-002 CONTINUATI… week-0… week… R001        R003       0.454 <NA>  
+3 Synthetic-PD-002 APPEARANCE  week-0… week… <NA>        <NA>      NA     R002  
+4 Synthetic-PD-002 CONTINUATI… week-0… week… R002        R003       0.779 <NA>  
+5 Synthetic-PD-002 CONTINUATI… week-0… week… R003        R001       0.697 <NA>  
+6 Synthetic-PD-002 CONTINUATI… week-0… week… R001        R002       0.306 <NA>  
+7 Synthetic-PD-002 CONTINUATI… week-0… week… R002        R003       0.806 <NA>  
+8 Synthetic-PD-002 CONTINUATI… week-0… week… R003        R001       0.645 <NA>  
+9 Synthetic-PD-002 CONTINUATI… week-0… week… R001        R002       0.302 <NA>  

@@ -135,6 +135,7 @@ create_region_table <- function(regions, patient_id, timepoint) {
   }
 
   map_dfr(regions, function(r) {
+    bb <- r$bounding_box
     tibble(
       patient_id = patient_id,
       timepoint = timepoint,
@@ -146,9 +147,9 @@ create_region_table <- function(regions, patient_id, timepoint) {
       centroid_x = r$centroid[1],
       centroid_y = r$centroid[2],
       centroid_z = r$centroid[3],
-      bbox_size_x = r$bounding_box$size[1],
-      bbox_size_y = r$bounding_box$size[2],
-      bbox_size_z = r$bounding_box$size[3],
+      bbox_size_x = if (!is.null(bb)) bb$size[1] else NA_integer_,
+      bbox_size_y = if (!is.null(bb)) bb$size[2] else NA_integer_,
+      bbox_size_z = if (!is.null(bb)) bb$size[3] else NA_integer_,
       n_voxels = r$n_voxels
     )
   })
