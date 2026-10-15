@@ -420,6 +420,9 @@ server <- function(input, output, session) {
 
   get_path <- function() {
     if (!is.null(rv$upload_dir)) return(rv$upload_dir)
+    if (input$data_source == "custom" && nzchar(trimws(input$custom_path))) {
+      return(normalizePath(trimws(input$custom_path), winslash = "/", mustWork = FALSE))
+    }
     if (input$data_source == "test") {
       return(file.path(TEST_DATA_ROOT, input$test_patient_id))
     }
@@ -427,6 +430,9 @@ server <- function(input, output, session) {
   }
   get_pid <- function() {
     if (!is.null(rv$upload_dir)) return("Uploaded-Patient")
+    if (input$data_source == "custom" && nzchar(trimws(input$custom_path))) {
+      return(basename(trimws(input$custom_path)))
+    }
     if (input$data_source == "test") return(input$test_patient_id)
     input$patient_id
   }
