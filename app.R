@@ -37,6 +37,12 @@ TARGET_SIZE  <- c(48L, 48L, 48L)
 patient_list <- sort(list.dirs(IMAGING_ROOT, recursive = FALSE, full.names = FALSE))
 patient_list <- patient_list[grepl("^Patient-", patient_list)]
 
+TEST_DATA_ROOT <- normalizePath(file.path(Sys.getenv("USERPROFILE"),
+  "OneDrive/Desktop/test_brain_mri"), winslash = "/", mustWork = FALSE)
+test_list <- if (dir.exists(TEST_DATA_ROOT)) {
+  sort(list.dirs(TEST_DATA_ROOT, recursive = FALSE, full.names = FALSE))
+} else character(0)
+
 existing_figs   <- if (dir.exists(FIGURES_PATH)) sort(list.files(FIGURES_PATH, "\\.png$")) else character(0)
 existing_tables <- if (dir.exists(TABLES_PATH))  sort(list.files(TABLES_PATH,  "\\.csv$")) else character(0)
 
@@ -195,16 +201,27 @@ ui <- page_sidebar(
                    style = "color:#5a7a9a;font-size:11px;")
       ),
       hr(style = "border-color:rgba(0,212,255,.15);margin:8px 0;"),
-      tags$label("SELECT PATIENT",
-                 style = "color:#5a7a9a;font-size:10px;letter-spacing:1px;"),
-      selectizeInput("patient_id", NULL, choices = patient_list,
-                     selected = "Patient-083",
-                     options = list(placeholder = "Search patient...")),
-      div(class = "or-div", "\u2500\u2500 OR UPLOAD SCANS \u2500\u2500"),
-      div(class = "drop-zone",
-        fileInput("upload_files", NULL, multiple = TRUE,
-                  accept = c(".nii.gz", ".nii"),
-                  placeholder = "Drop .nii.gz files here")
+      radioButtons("data_source", NULL,
+                    choices = c("LUMIERE Dataset" = "lumiere",
+                                "Test Data" = "test",
+                                "Custom Path" = "custom"),
+                    selected = "lumiere", inline = TRUE),
+      conditionalPanel(
+        condition = "input.data_source == 'lumiere'",
+        selectizeInput("patient_id", NULL, choices = patient_list,
+                       selected = "Patient-083",
+                       options = list(placeholder = "Search patient..."))
+      ),
+      conditionalPanel(
+        condition = "input.data_source == 'test'",
+        selectizeInput("test_patient_id", NULL, choices = test_list,
+                       selected = if (length(test_list) > 0) test_list[1] else NULL,
+                       options = list(placeholder = "Search test patient..."))
+      ),
+      conditionalPanel(
+        condition = "input.data_source == 'custom'",
+        textInput("custom_path", NULL,
+                  placeholder = "C:/path/to/Patient-XXX")
       ),
       br(),
       actionButton("preview_btn", "\U0001F441 Preview MRI"),
@@ -403,10 +420,14 @@ server <- function(input, output, session) {
 
   get_path <- function() {
     if (!is.null(rv$upload_dir)) return(rv$upload_dir)
+    if (input$data_source == "test") {
+      return(file.path(TEST_DATA_ROOT, input$test_patient_id))
+    }
     file.path(IMAGING_ROOT, input$patient_id)
   }
   get_pid <- function() {
     if (!is.null(rv$upload_dir)) return("Uploaded-Patient")
+    if (input$data_source == "test") return(input$test_patient_id)
     input$patient_id
   }
 
