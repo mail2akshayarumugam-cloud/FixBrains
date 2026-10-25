@@ -153,6 +153,24 @@ table.dataTable tbody tr:hover{background:#142a4a!important;}
 .or-div{text-align:center;color:#3a5a7a;font-size:11px;
   margin:8px 0;letter-spacing:1px;}
 
+/* radio buttons modern */
+.radio-inline{margin-right:2px!important;}
+.radio-inline label{color:#5a8aaa!important;font-size:11px!important;font-weight:600!important;
+  padding:5px 10px!important;border-radius:8px!important;border:1px solid rgba(0,212,255,0.1)!important;
+  transition:all 0.2s!important;cursor:pointer!important;background:rgba(0,212,255,0.03)!important;}
+.radio-inline label:hover{border-color:rgba(0,212,255,0.3)!important;color:#00d4ff!important;
+  background:rgba(0,212,255,0.06)!important;}
+.radio-inline input[type=radio]:checked+span,
+.radio-inline input:checked~*{color:#fff!important;}
+
+/* sidebar button hover */
+#preview_btn:hover{background:rgba(0,212,255,0.12)!important;
+  border-color:rgba(0,212,255,0.5)!important;color:#00d4ff!important;
+  box-shadow:0 0 15px rgba(0,212,255,0.15)!important;}
+#run_btn:hover{transform:translateY(-1px)!important;
+  box-shadow:0 4px 20px rgba(0,136,255,0.4)!important;
+  background:linear-gradient(135deg,#0077dd,#00aaff)!important;}
+
 .legend-strip{display:flex;gap:14px;justify-content:center;padding:8px 0;}
 .legend-chip{display:flex;align-items:center;gap:5px;font-size:12px;color:#8aaabe;}
 .legend-dot{width:12px;height:12px;border-radius:3px;display:inline-block;}
@@ -191,48 +209,90 @@ ui <- page_sidebar(
   tags$head(tags$style(HTML(CSS))),
 
   sidebar = sidebar(
-    width = 280, bg = "#0a1628", open = TRUE,
-    div(style = "padding:8px 4px 0;",
-      div(style = "text-align:center;margin-bottom:12px;",
-        tags$span(style = "font-size:26px;", "\U0001F9E0"),
-        h5("Tumor Progression",
-           style = "margin:4px 0 0;font-weight:800;color:#fff;"),
-        tags$small("Region-Wise Longitudinal Analysis",
-                   style = "color:#5a7a9a;font-size:11px;")
+    width = 290, bg = "#0a1228", open = TRUE,
+    div(style = "padding:12px 8px 0;",
+
+      # ── Logo & Title ──
+      div(style = "text-align:center;margin-bottom:16px;padding:14px 0;
+          background:linear-gradient(135deg,rgba(0,136,255,0.08),rgba(0,212,255,0.04));
+          border-radius:14px;border:1px solid rgba(0,212,255,0.1);",
+        tags$span(style = "font-size:32px;display:block;
+            filter:drop-shadow(0 0 8px rgba(0,212,255,0.4));", "\U0001F9E0"),
+        div(style = "font-size:16px;font-weight:800;color:#fff;margin-top:6px;
+            letter-spacing:0.5px;text-shadow:0 0 15px rgba(0,212,255,0.3);",
+            "Tumor Progression"),
+        div(style = "font-size:10px;color:#4a7a9a;margin-top:2px;
+            letter-spacing:1.5px;text-transform:uppercase;",
+            "Region-Wise Analysis")
       ),
-      hr(style = "border-color:rgba(0,212,255,.15);margin:8px 0;"),
-      radioButtons("data_source", NULL,
-                    choices = c("LUMIERE Dataset" = "lumiere",
-                                "Test Data" = "test",
-                                "Custom Path" = "custom"),
-                    selected = "lumiere", inline = TRUE),
-      conditionalPanel(
-        condition = "input.data_source == 'lumiere'",
-        selectizeInput("patient_id", NULL, choices = patient_list,
-                       selected = "Patient-083",
-                       options = list(placeholder = "Search patient..."))
+
+      # ── Data Source ──
+      div(style = "margin-bottom:12px;",
+        div(style = "color:#4a7a9a;font-size:9px;letter-spacing:1.5px;
+            text-transform:uppercase;margin-bottom:6px;font-weight:600;",
+            "\U0001F4C1 DATA SOURCE"),
+        radioButtons("data_source", NULL,
+                      choices = c("LUMIERE Dataset" = "lumiere",
+                                  "Test Data" = "test",
+                                  "Custom Path" = "custom"),
+                      selected = "lumiere", inline = TRUE)
       ),
-      conditionalPanel(
-        condition = "input.data_source == 'test'",
-        selectizeInput("test_patient_id", NULL, choices = test_list,
-                       selected = if (length(test_list) > 0) test_list[1] else NULL,
-                       options = list(placeholder = "Search test patient..."))
+
+      # ── Patient Selection ──
+      div(style = "margin-bottom:14px;",
+        div(style = "color:#4a7a9a;font-size:9px;letter-spacing:1.5px;
+            text-transform:uppercase;margin-bottom:6px;font-weight:600;",
+            "\U0001F50D SELECT PATIENT"),
+        conditionalPanel(
+          condition = "input.data_source == 'lumiere'",
+          selectizeInput("patient_id", NULL, choices = patient_list,
+                         selected = "Patient-083",
+                         options = list(placeholder = "Search patient..."))
+        ),
+        conditionalPanel(
+          condition = "input.data_source == 'test'",
+          selectizeInput("test_patient_id", NULL, choices = test_list,
+                         selected = if (length(test_list) > 0) test_list[1] else NULL,
+                         options = list(placeholder = "Search test patient..."))
+        ),
+        conditionalPanel(
+          condition = "input.data_source == 'custom'",
+          textInput("custom_path", NULL,
+                    placeholder = "C:/path/to/Patient-XXX")
+        )
       ),
-      conditionalPanel(
-        condition = "input.data_source == 'custom'",
-        textInput("custom_path", NULL,
-                  placeholder = "C:/path/to/Patient-XXX")
+
+      # ── Action Buttons ──
+      div(style = "display:flex;flex-direction:column;gap:8px;margin-bottom:14px;",
+        actionButton("preview_btn", "\U0001F441 Preview MRI",
+                      style = "width:100%;padding:11px;border-radius:10px;font-weight:600;
+                      font-size:13px;background:rgba(0,212,255,0.06);
+                      border:1px solid rgba(0,212,255,0.25);color:#7ac0e0;
+                      transition:all 0.2s;"),
+        actionButton("run_btn", "\U0001F680 Run Full Analysis",
+                      style = "width:100%;padding:13px;border-radius:10px;font-weight:700;
+                      font-size:14px;background:linear-gradient(135deg,#0055cc,#0088ff);
+                      border:none;color:#fff;letter-spacing:0.3px;
+                      transition:all 0.2s;box-shadow:0 2px 12px rgba(0,136,255,0.25);")
       ),
-      br(),
-      actionButton("preview_btn", "\U0001F441 Preview MRI"),
-      actionButton("run_btn", "\U0001F680 Run Full Analysis"),
-      br(), br(),
+
+      # ── Status ──
       htmlOutput("status_text"),
-      hr(style = "border-color:rgba(0,212,255,.15);margin:10px 0;"),
-      htmlOutput("patient_info"),
-      hr(style = "border-color:rgba(0,212,255,.15);margin:10px 0;"),
-      div(style = "font-size:10px;color:#3a5a7a;text-align:center;",
-          "VIT Chennai \U00B7 MTech ISE")
+
+      # ── Patient Info ──
+      div(style = "margin-top:12px;padding:10px;background:rgba(0,212,255,0.03);
+          border-radius:10px;border:1px solid rgba(0,212,255,0.08);",
+        htmlOutput("patient_info")
+      ),
+
+      # ── Footer ──
+      div(style = "text-align:center;margin-top:16px;padding-top:12px;
+          border-top:1px solid rgba(0,212,255,0.08);",
+        div(style = "font-size:9px;color:#2a4a6a;letter-spacing:1px;text-transform:uppercase;",
+            "VIT Chennai \U00B7 MTech ISE"),
+        div(style = "font-size:8px;color:#1a3a5a;margin-top:2px;",
+            "3D U-Net + LSTM \U00B7 LUMIERE Dataset")
+      )
     )
   ),
 

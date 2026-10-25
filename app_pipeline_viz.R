@@ -1,8 +1,8 @@
 ## ══════════════════════════════════════════════════════════════
 ## Pipeline Explorer — Step-by-Step Data Transformation Demo
 ##
-## Run:
-##   cd "C:/Users/mail2/OneDrive/Desktop/R project 1"
+## Run in PowerShell:
+##   Set-Location "C:\Users\mail2\OneDrive\Desktop\R project 1"
 ##   Rscript -e "shiny::runApp('app_pipeline_viz.R', launch.browser=TRUE)"
 ## ══════════════════════════════════════════════════════════════
 
@@ -49,12 +49,8 @@ dataset_meta <- tryCatch({
 }, error = function(e) tibble(pid = patient_dirs, n_tp = NA_integer_))
 
 message("Loading 3D U-Net model...")
-UNET_MODEL <- tryCatch({
-  m <- jit_load(file.path(PROJECT_ROOT, "models",
-                           "unet_3d_trained_jit.pt"))
-  m$to(device = "cpu")
-  m
-}, error = function(e) { message("Model not found"); NULL })
+MODEL_PATH <- file.path(PROJECT_ROOT, "models", "unet_3d_trained_jit.pt")
+UNET_MODEL <- load_trained_unet(MODEL_PATH, device = "cpu")
 
 ## ── Plot helpers ────────────────────────────────────────────
 
@@ -96,6 +92,51 @@ seg_slice_plot <- function(mat, title = "") {
     void_dark()
 }
 
+format_voxel_patch <- function(volume, label, size = 5L, center = NULL) {
+  volume <- as.array(volume)
+  dims <- dim(volume)
+  if (length(dims) < 3L) return("No 3D voxel data available")
+
+  if (is.null(center)) center <- dims[1:3] %/% 2L
+  center <- pmax(1L, pmin(dims[1:3], as.integer(center)))
+  half <- size %/% 2L
+  x <- seq.int(max(1L, center[1] - half), min(dims[1], center[1] + half))
+  y <- seq.int(max(1L, center[2] - half), min(dims[2], center[2] + half))
+  patch <- volume[x, y, center[3], drop = TRUE]
+
+  paste0(
+    label, "\n",
+    "Real axial voxel values; z=", center[3],
+    ", x=", min(x), ":", max(x), ", y=", min(y), ":", max(y), "\n",
+    paste(capture.output(print(round(patch, 3))), collapse = "\n")
+  )
+}
+
+format_channel_patches <- function(volume, channel_names) {
+  volume <- as.array(volume)
+  n_channels <- min(dim(volume)[4], length(channel_names))
+  paste(vapply(seq_len(n_channels), function(channel) {
+    format_voxel_patch(
+      volume[, , , channel],
+      paste0(channel_names[channel], " channel"),
+      size = 3L
+    )
+  }, character(1)), collapse = "\n\n")
+}
+
+format_table_sample <- function(data, label, rows = 3L) {
+  if (is.null(data) || !is.data.frame(data) || nrow(data) == 0L) {
+    return(paste0(label, "\nNo rows produced at this stage"))
+  }
+
+  paste0(
+    label, " (first ", min(rows, nrow(data)), " actual rows)\n",
+    paste(capture.output(
+      print(as.data.frame(utils::head(data, rows)), row.names = FALSE)
+    ), collapse = "\n")
+  )
+}
+
 ## ── CSS ─────────────────────────────────────────────────────
 
 CSS <- paste0("
@@ -121,6 +162,8 @@ body{font-family:'Segoe UI',system-ui,sans-serif;}
 .data-transform{
   display:grid;grid-template-columns:1fr 36px 1fr;gap:6px;
   align-items:stretch;margin:10px 0;}
+.sample-heading{color:#00d4ff;font-size:11px;font-weight:700;
+  letter-spacing:.7px;margin:14px 0 6px;}
 .dt-box{background:#0a1628;border:1px solid rgba(0,212,255,.08);
   border-radius:8px;padding:10px 12px;font-family:Consolas,monospace;
   font-size:11px;line-height:1.5;color:#7ab8e0;overflow-x:auto;}
@@ -189,7 +232,13 @@ ui <- page_sidebar(
       hr(style = "border-color:rgba(0,212,255,.15);margin:10px 0;"),
       selectizeInput("patient_id", "PATIENT",
                      choices = patient_dirs,
-                     selected = "Patient-083"),
+                     selected = if ("Patient-083" %in% patient_dirs) {
+                       "Patient-083"
+                     } else if (length(patient_dirs) > 0) {
+                       patient_dirs[1]
+                     } else {
+                       character(0)
+                     }),
       sliderInput("slice_z", "Axial Slice",
                   min = 1, max = 182, value = 91, step = 1),
       actionButton("go_btn",
@@ -229,15 +278,22 @@ server <- function(input, output, session) {
     pid <- input$patient_id
     pp  <- file.path(IMAGING_ROOT, pid)
     if (!dir.exists(pp)) { rv$status <- "Folder not found"; return() }
+    if (is.null(UNET_MODEL)) {
+      rv$status <- paste("Trained U-Net model not available:", MODEL_PATH)
+      return()
+    }
 
     steps <- list()
 
     ## ── STEP 1 : Raw MRI ──
     rv$status <- "Step 1/7 — Loading raw MRI..."
-    patient_data <- tryCatch(load_full_patient(pp),
-                             error = function(e) NULL)
+    patient_data <- tryCatch(
+      load_full_patient(pp),
+      error = function(e) {
+        rv$status <- paste("Failed to load patient:", conditionMessage(e))
+        NULL
+      })
     if (is.null(patient_data)) {
-      rv$status <- "Failed to load patient"
       return()
     }
     tp_names  <- names(patient_data$timepoints)
@@ -285,6 +341,14 @@ server <- function(input, output, session) {
         "Timepoints: ", length(tp_names), "\n",
         "Segmentation: ", if (has_seg) "yes" else "no"
       ),
+      in_sample = paste0(
+        "Source file read by RNifti::readNifti()\n",
+        first_tp$mri$files[[mods[1]]]
+      ),
+      out_sample = format_voxel_patch(
+        as.array(first_tp$mri$volumes[[mods[1]]]),
+        paste0(toupper(mods[1]), " loaded into the R array")
+      ),
       raw_vols = lapply(first_tp$mri$volumes, as.array),
       seg_vol  = if (has_seg) as.array(first_tp$segmentation$mask) else NULL,
       raw_dims = raw_dims
@@ -294,11 +358,19 @@ server <- function(input, output, session) {
     rv$status <- "Step 2/7 — Preprocessing..."
     preprocessed <- tryCatch(
       preprocess_full_patient(patient_data, target_size = TARGET_SIZE),
-      error = function(e) NULL)
-    if (is.null(preprocessed)) { rv$status <- "Preprocessing failed"; return() }
+      error = function(e) {
+        rv$status <- paste("Preprocessing failed:", conditionMessage(e))
+        NULL
+      })
+    if (is.null(preprocessed)) return()
 
     pp_shape <- if (!is.null(preprocessed[[1]]$stacked))
                   dim(preprocessed[[1]]$stacked) else NULL
+    sample_center <- if (!is.null(first_tp$segmentation$mask)) {
+      find_roi_center(as.array(first_tp$segmentation$mask))
+    } else {
+      NULL
+    }
 
     steps$step2 <- list(
       title = "Preprocess & Normalize",
@@ -333,26 +405,44 @@ server <- function(input, output, session) {
         round(prod(raw_dims) / prod(head(pp_shape, 3)) * 100, 0),
         "x smaller"
       ),
+      in_sample = format_voxel_patch(
+        as.array(first_tp$mri$volumes[[mods[1]]]),
+        paste0("Raw ", toupper(mods[1]), " voxels at preprocessing center"),
+        center = sample_center
+      ),
+      out_sample = format_voxel_patch(
+        preprocessed[[1]]$stacked[, , , 1],
+        "Normalized/cropped T1 voxels"
+      ),
       stacked = preprocessed[[1]]$stacked,
       seg_pp  = preprocessed[[1]]$segmentation
     )
 
     ## ── STEP 3 : U-Net ──
     rv$status <- "Step 3/7 — Running 3D U-Net..."
-    segmented <- segment_patient(UNET_MODEL, preprocessed, "cpu")
+    segmented <- tryCatch(
+      segment_patient(UNET_MODEL, preprocessed, "cpu",
+                      prefer_ground_truth = FALSE),
+      error = function(e) {
+        rv$status <- paste("U-Net inference failed:", conditionMessage(e))
+        NULL
+      })
+    if (is.null(segmented) || length(segmented) == 0) return()
     first_seg <- segmented[[1]]$segmentation
     labs_found <- sort(unique(as.integer(first_seg)))
     lab_names  <- c("0" = "Background", "1" = "Necrosis",
                     "2" = "Edema", "3" = "Enhancing", "4" = "Enh.Core")
 
     steps$step3 <- list(
-      title = "3D U-Net Segmentation",
+      title = "3D U-Net Prediction",
       desc = paste0(
         "The 4-channel tensor is passed through a <b>3D U-Net</b> ",
         "(22.6M parameters, 32 base filters). The encoder compresses ",
         "spatial information, the decoder reconstructs it with skip ",
         "connections. Each voxel gets 4 class probabilities; ",
-        "<b>argmax</b> picks the highest.<br>",
+        "<b>argmax</b> picks the highest. Expert segmentation labels, ",
+        "when present, are shown separately in Step 1 and are not used ",
+        "as the U-Net prediction.<br>",
         "<span style='color:#ef4444'>\u25A0 Necrosis</span> (dead core) &nbsp; ",
         "<span style='color:#f59e0b'>\u25A0 Edema</span> (swelling) &nbsp; ",
         "<span style='color:#22c55e'>\u25A0 Enhancing</span> (active tumor)"
@@ -382,6 +472,14 @@ server <- function(input, output, session) {
         }), collapse = "\n"), "\n\n",
         "Tumor voxels: ", format(sum(first_seg > 0), big.mark = ","),
         " / ", format(prod(dim(first_seg)), big.mark = ",")
+      ),
+      in_sample = format_channel_patches(
+        preprocessed[[1]]$stacked,
+        c("T1", "T1c", "T2", "FLAIR")
+      ),
+      out_sample = format_voxel_patch(
+        first_seg,
+        "Predicted segmentation labels (0=background; positive=class)"
       ),
       seg = first_seg
     )
@@ -426,6 +524,14 @@ server <- function(input, output, session) {
                 pull(s),
               collapse = "\n")
       ),
+      in_sample = format_voxel_patch(
+        first_seg,
+        "Predicted voxel labels passed to region extraction"
+      ),
+      out_sample = format_table_sample(
+        rt,
+        "Extracted regions (patient/timepoint/type/volume/centroid)"
+      ),
       region_table = rt,
       seg = first_seg
     )
@@ -468,6 +574,14 @@ server <- function(input, output, session) {
                   pull(s), collapse = "\n")
         )
       } else "No events (need 2+ timepoints with regions)",
+      in_sample = format_table_sample(
+        rt,
+        "Real region rows being matched"
+      ),
+      out_sample = format_table_sample(
+        events,
+        "Actual tracking events"
+      ),
       events = events
     )
 
@@ -513,6 +627,16 @@ server <- function(input, output, session) {
           "  total events:    ", ps$total_events
         )
       } else "Insufficient data",
+      in_sample = paste(
+        format_table_sample(rt, "Actual region measurement rows"),
+        format_table_sample(events, "Actual matched/event rows"),
+        sep = "\n\n"
+      ),
+      out_sample = paste(
+        format_table_sample(long_feat, "Computed longitudinal feature rows"),
+        format_table_sample(pat_sum, "Computed patient summary row"),
+        sep = "\n\n"
+      ),
       long_feat = long_feat,
       pat_sum   = pat_sum
     )
@@ -591,6 +715,42 @@ server <- function(input, output, session) {
           "  New regions:  ", ev$has_new_regions
         )
       } else "Not enough data to classify",
+      in_sample = paste(
+        if (!is.null(trajectories) && length(trajectories) > 0) {
+          paste0(
+            "Actual per-region trajectories\n",
+            paste(vapply(names(trajectories), function(region_id) {
+              trajectory <- trajectories[[region_id]]
+              paste0(
+                region_id, ": trend=", trajectory$trend,
+                ", volume=", round(trajectory$first_volume, 3),
+                " -> ", round(trajectory$last_volume, 3), " cm3"
+              )
+            }, character(1)), collapse = "\n")
+          )
+        } else {
+          format_table_sample(rt, "Actual extracted region rows")
+        },
+        format_table_sample(events, "Actual events used by classification"),
+        sep = "\n\n"
+      ),
+      out_sample = if (!is.null(progression)) {
+        ev <- progression$evidence
+        paste0(
+          "Actual classification result\n",
+          "classification = ", progression$classification, "\n",
+          "confidence = ", round(progression$confidence, 3), "\n",
+          "evidence = { growing: ", ev$n_growing,
+          ", shrinking: ", ev$n_shrinking,
+          ", stable: ", ev$n_stable,
+          ", appeared: ", ev$n_appeared,
+          ", disappeared: ", ev$n_disappeared,
+          ", splits: ", ev$has_splits,
+          ", new_regions: ", ev$has_new_regions, " }"
+        )
+      } else {
+        "No classification result: insufficient trajectory/event data"
+      },
       cls = cls, conf = conf,
       progression = progression,
       trajectories = trajectories,
@@ -689,6 +849,16 @@ server <- function(input, output, session) {
             div(class = "dt-box",
                 div(class = "dt-label", s$out_label),
                 tags$pre(s$out_data))
+          ),
+          div(class = "sample-heading", "ACTUAL DATA — SMALL INPUT/OUTPUT SAMPLE"),
+          div(class = "data-transform",
+            div(class = "dt-box",
+                div(class = "dt-label", "Real input values"),
+                tags$pre(s$in_sample)),
+            div(class = "dt-arrow", "\u27A1"),
+            div(class = "dt-box",
+                div(class = "dt-label", "Real output values"),
+                tags$pre(s$out_sample))
           ),
           plotOutput(paste0("plot_", i), height = "220px")
         ),
